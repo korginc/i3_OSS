@@ -1,0 +1,997 @@
+diff --git a/arch/arm/boot/dts/imx6ull-14x14-evk_pkbd.dts b/arch/arm/boot/dts/imx6ull-14x14-evk_pkbd.dts
+index a226cb3cfa17..384536ab29d4 100644
+--- a/arch/arm/boot/dts/imx6ull-14x14-evk_pkbd.dts
++++ b/arch/arm/boot/dts/imx6ull-14x14-evk_pkbd.dts
+@@ -201,6 +201,7 @@
+ 	fsl,ldo-bypass = <0>; /* DCDC, ldo-enable */
+ };
+ 
++/*
+ &i2c1 {
+ 	clock-frequency = <100000>;
+ 	pinctrl-names = "default";
+@@ -221,6 +222,7 @@
+ 		interrupts = <0 8>;
+ 	};
+ };
++*/
+ 
+ &i2c2 {
+ 	clock_frequency = <100000>;
+@@ -489,6 +491,13 @@
+ 			>;
+ 		};
+ 
++                pinctrl_uart4: uart4grp {
++                        fsl,pins = <
++                                MX6UL_PAD_UART4_TX_DATA__UART4_DCE_TX 0x1b0b1
++                                MX6UL_PAD_UART4_RX_DATA__UART4_DCE_RX 0x1b0b1
++                        >;
++                };
++
+ 		pinctrl_usdhc1: usdhc1grp {
+ 			fsl,pins = <
+ 				MX6UL_PAD_SD1_CMD__USDHC1_CMD     0x17059
+@@ -763,6 +772,12 @@
+ 	status = "okay";
+ };
+ 
++&uart4 {
++        pinctrl-names = "default";
++        pinctrl-0 = <&pinctrl_uart4>;
++        status = "okay";
++};
++
+ 
+ 
+ &usbotg1 {
+diff --git a/drivers/tty/serial/imx.c b/drivers/tty/serial/imx.c
+index c9bee3206f92..77f9e8f1d793 100644
+--- a/drivers/tty/serial/imx.c
++++ b/drivers/tty/serial/imx.c
+@@ -1502,8 +1502,10 @@ imx_verify_port(struct uart_port *port, struct serial_struct *ser)
+ 		ret = -EINVAL;
+ 	if (ser->io_type != UPIO_MEM)
+ 		ret = -EINVAL;
++#if 0
+ 	if (sport->port.uartclk / 16 != ser->baud_base)
+ 		ret = -EINVAL;
++#endif
+ 	if (sport->port.mapbase != (unsigned long)ser->iomem_base)
+ 		ret = -EINVAL;
+ 	if (sport->port.iobase != ser->port)
+diff --git a/include/uapi/linux/tty.h b/include/uapi/linux/tty.h
+index dac199a2dba5..91c302df1db5 100644
+--- a/include/uapi/linux/tty.h
++++ b/include/uapi/linux/tty.h
+@@ -35,4 +35,7 @@
+ #define N_TRACESINK	23	/* Trace data routing for MIPI P1149.7 */
+ #define N_TRACEROUTER	24	/* Trace data routing for MIPI P1149.7 */
+ 
++#define	N_EPF		25
++#define	N_MIDI		26
++
+ #endif /* _UAPI_LINUX_TTY_H */
+diff --git a/sound/drivers/Kconfig b/sound/drivers/Kconfig
+index 8545da99b183..54c4425d5db3 100644
+--- a/sound/drivers/Kconfig
++++ b/sound/drivers/Kconfig
+@@ -148,6 +148,14 @@ config SND_SERIAL_U16550
+ 	  To compile this driver as a module, choose M here: the module
+ 	  will be called snd-serial-u16550.
+ 
++config SND_TTY_MIDI
++	tristate "TTY serial MIDI driver"
++	help
++	  To include support for MIDI serial port interfaces, say Y here.
++	  This driver accesses the serial port hardware using TTY drivers.
++	  To compile this driver as a module, choose M here: the module
++	  will be called snd-tty-midi.
++
+ config SND_MPU401
+ 	tristate "Generic MPU-401 UART driver"
+ 	select SND_MPU401_UART
+diff --git a/sound/drivers/Makefile b/sound/drivers/Makefile
+index 1a8440c8b138..f433e5e8f295 100644
+--- a/sound/drivers/Makefile
++++ b/sound/drivers/Makefile
+@@ -11,6 +11,7 @@ snd-portman2x4-objs := portman2x4.o
+ snd-serial-u16550-objs := serial-u16550.o
+ snd-virmidi-objs := virmidi.o
+ snd-ml403-ac97cr-objs := ml403-ac97cr.o pcm-indirect2.o
++snd_tty_midi-objs := tty-midi.o
+ 
+ # Toplevel Module Dependency
+ obj-$(CONFIG_SND_DUMMY) += snd-dummy.o
+@@ -21,5 +22,6 @@ obj-$(CONFIG_SND_MTPAV) += snd-mtpav.o
+ obj-$(CONFIG_SND_MTS64) += snd-mts64.o
+ obj-$(CONFIG_SND_PORTMAN2X4) += snd-portman2x4.o
+ obj-$(CONFIG_SND_ML403_AC97CR) += snd-ml403-ac97cr.o
++obj-$(CONFIG_SND_TTY_MIDI) += snd_tty_midi.o
+ 
+ obj-$(CONFIG_SND) += opl3/ opl4/ mpu401/ vx/ pcsp/
+diff --git a/sound/drivers/tty-midi.c b/sound/drivers/tty-midi.c
+new file mode 100755
+index 000000000000..116c7f15ae90
+--- /dev/null
++++ b/sound/drivers/tty-midi.c
+@@ -0,0 +1,879 @@
++/*
++ *   Generic driver for serial MIDI adapters
++ *   Copyright (c) by Jaroslav Kysela <perex@suse.cz>
++ *
++ *   This program is free software; you can redistribute it and/or modify
++ *   it under the terms of the GNU General Public License as published by
++ *   the Free Software Foundation; either version 2 of the License, or
++ *   (at your option) any later version.
++ *
++ *   This program is distributed in the hope that it will be useful,
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *   GNU General Public License for more details.
++ *
++ *   You should have received a copy of the GNU General Public License
++ *   along with this program; if not, write to the Free Software
++ *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
++ *
++ *   Adapted to new Kernel versions >= 4.4
++ *   Modified to use the line discipline
++ *         Copyright (C) 2018 Korg Italy S.p.A.
++ *         Enrico Alessio Romeo <romeo@korg.it>
++ *
++ *
++ */
++
++#include <linux/init.h>
++#include <linux/slab.h>
++#include <linux/tty.h>
++#include <linux/module.h>
++#include <asm/uaccess.h>
++#include <linux/poll.h>
++#include <sound/core.h>
++#include <sound/rawmidi.h>
++#include <linux/platform_device.h>
++#include <sound/initval.h>
++#include <linux/delay.h>
++#include <linux/mutex.h>
++#include <linux/serial.h>
++//#include <linux/klt/midi_trace.h>
++
++#define klt_uart_midi_message printk
++
++#define STATIC_MODULE   /* to load module using default settings */ 
++
++#define SNDRV_SERIAL_MAX_OUTS	16
++#define TX_BUF_SIZE	256
++
++MODULE_DESCRIPTION("TTY Serial MIDI");
++MODULE_LICENSE("GPL");
++MODULE_SUPPORTED_DEVICE("{{ALSA, MIDI serial}}");
++
++/* Index 0-MAX */
++static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;
++/* ID for this card */
++static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;     
++/* Enable this card */
++static int enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE;
++/* serial device */
++static char *sdev[SNDRV_CARDS] = {"/dev/ttyS0", [1 ... (SNDRV_CARDS - 1)] = ""};
++static int adaptor[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 0};
++/* 1 to 16 */
++static int outs[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 1};
++
++#ifdef STATIC_MODULE
++/* 9600,19200,38400,57600,115200 */
++static int speed[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 115200};
++static int baud_base[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 11000000};
++#else
++/* 9600,19200,38400,57600,115200 */
++static int speed[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 38400};
++static int baud_base[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 3000000};
++#endif
++
++module_param_array(index, int, NULL, 0444);
++MODULE_PARM_DESC(index, "Index value for Serial MIDI.");
++module_param_array(id, charp, NULL, 0444);
++MODULE_PARM_DESC(id, "ID string for Serial MIDI.");
++module_param_array(enable, bool, NULL, 0444);
++MODULE_PARM_DESC(enable, "Enable Serial MIDI.");
++module_param_array(sdev, charp, NULL, 0444);
++MODULE_PARM_DESC(sdev, "Device file string for Serial MIDI.");
++module_param_array(speed, int, NULL, 0444);
++MODULE_PARM_DESC(speed, "Speed in bauds.");
++module_param_array(adaptor, int, NULL, 0444);
++MODULE_PARM_DESC(adaptor, "Type of adaptor.");
++module_param_array(outs, int, NULL, 0444);
++MODULE_PARM_DESC(outs, "Number of MIDI outputs.");
++module_param_array(baud_base, int, NULL, 0444);
++MODULE_PARM_DESC(baud_base, "Baud base.");
++
++#define SERIAL_MODE_NOT_OPENED (0)
++#define SERIAL_MODE_BIT_INPUT (0)
++#define SERIAL_MODE_BIT_OUTPUT (1)
++#define SERIAL_MODE_BIT_INPUT_TRIGGERED	(2)
++#define SERIAL_MODE_BIT_OUTPUT_TRIGGERED (3)
++
++typedef struct _snd_serialmidi 
++{
++	struct snd_card *card;
++	char *sdev;		/* serial device name (e.g. /dev/ttyS0) */
++	unsigned int speed;	/* speed in bauds */
++	unsigned int adaptor;	/* see SERIAL_ADAPTOR_ */
++	unsigned int mode;	/* see SERIAL_MODE_* */
++	unsigned int outs;	/* count of outputs */
++	unsigned int baud_base; /* baud base */
++	unchar prev_status[SNDRV_SERIAL_MAX_OUTS];
++	struct snd_rawmidi *rmidi; /* rawmidi device */
++	struct snd_rawmidi_substream *substream_input;
++	struct snd_rawmidi_substream *substream_output;
++	struct file *file;
++	struct tty_struct *tty;
++	struct mutex open_lock;
++	int old_exclusive;
++	int old_low_latency;
++	unchar tx_buf[TX_BUF_SIZE];
++	struct device dev;
++	struct tty_ldisc_ops ldisc_ops;
++	char * ldisc_name;
++	unchar ref_count;
++	uint ldisc_type;
++	int custom_speed;
++	int index;
++} serialmidi_t;
++
++static uint midi_baudbase = 0xffffffff;
++static int tty_device_index = -1;
++static int tty_device_index2 = -1;
++static int serial_index = 0;
++static struct snd_card *snd_serialmidi_cards[SNDRV_CARDS] = SNDRV_DEFAULT_PTR;
++#if 0
++static void ldisc_receive_buf(struct tty_struct *, const unchar *cp, char *fp, int count);
++static void ldisc_write_wakeup(struct tty_struct *);
++static void ldisc_receive_buf2(struct tty_struct *, const unchar *cp, char *fp, int count);
++static void ldisc_write_wakeup2(struct tty_struct *);
++#endif
++/*
++ * -----------------------------------------------------------------------------
++ */
++static int serial_tty_ioctl(struct file *file, uint cmd, ulong arg)
++{
++	mm_segment_t fs;
++	int retval;
++
++	if (file->f_op == NULL){
++		klt_uart_midi_message(KERN_ERR "serial_tty_ioctl: ERROR, file->f_op is NULL\n");
++		return -ENXIO;
++	}
++	if (file->f_op->unlocked_ioctl == NULL) {
++		klt_uart_midi_message(KERN_ERR "serial_tty_ioctl: ERROR, file->f_op->ioctl is NULL\n");
++		return -ENXIO;
++	}
++
++	fs = get_fs();
++	set_fs(get_ds());
++	retval = file->f_op->unlocked_ioctl(file, cmd, arg);
++	set_fs(fs);
++	return retval;
++}
++/*
++ * -----------------------------------------------------------------------------
++ */
++static int set_serial_baud_base (serialmidi_t *serial)
++{
++	int retval;
++
++	struct serial_struct old_serinfo, new_serinfo;
++
++	/* get current serial parameters */
++	retval = serial_tty_ioctl (serial->file, TIOCGSERIAL, (ulong)&old_serinfo);
++
++	if (!retval){
++		new_serinfo = old_serinfo;
++		new_serinfo.flags = 0;
++		new_serinfo.baud_base = serial->baud_base;
++
++		/* set new serial parameters */;
++		retval = serial_tty_ioctl (serial->file, TIOCSSERIAL, (ulong)&new_serinfo);
++	}
++	return retval;
++}
++/*
++ * -----------------------------------------------------------------------------
++ */
++static int open_tty(serialmidi_t *serial, uint mode)
++{
++	int retval = 0;
++	struct tty_struct *tty;
++	struct tty_file_private * private_data;
++	struct ktermios old_termios, *ntermios;
++	int ldisc = N_EPF;
++	int speed, cflag;
++
++	mutex_lock(&serial->open_lock);
++
++	serial->ref_count ++;
++
++	if (serial->tty) {
++		set_bit(mode, (void*)&serial->mode);
++		klt_uart_midi_message(KERN_ERR "open_tty already opened");
++				goto __end;
++	}
++
++
++	if (IS_ERR(serial->file = filp_open(serial->sdev, O_RDWR|O_NONBLOCK, 0))) {
++		retval = PTR_ERR(serial->file);
++		serial->file = NULL;
++		goto __end;
++	}
++
++	klt_uart_midi_message(KERN_INFO "open_tty - tty %s\n",serial->sdev);
++
++	private_data = serial->file->private_data;
++
++	tty = (struct tty_struct *)private_data->tty;
++
++	if (tty == NULL || tty->magic != TTY_MAGIC){
++		klt_uart_midi_message(KERN_ERR "device %s has not valid tty", serial->sdev);
++		retval = -EIO;
++		goto __end;
++	}
++
++	if (tty->count > 1){
++		klt_uart_midi_message(KERN_ERR "tty %s is already used", serial->sdev);
++		retval = -EBUSY;
++		goto __end;
++	}
++
++	tty->count ++;
++
++	/* select N_TTY line discipline (for sure) */
++	ldisc = serial->ldisc_type;
++	if ((retval = serial_tty_ioctl(serial->file, TIOCSETD, (ulong)&ldisc)) < 0){
++		klt_uart_midi_message(KERN_ERR "TIOCSETD (N_TTY) failed for tty %s", serial->sdev);
++				goto __end;
++	}
++	/* select baud base */
++	if ((retval = set_serial_baud_base(serial)) < 0){
++		klt_uart_midi_message(KERN_ERR "set_serial_baud_base");
++		goto __end;
++	}
++
++	/* sanity check, we use disc_data for own purposes */
++	if (tty->disc_data != NULL){
++		klt_uart_midi_message(KERN_ERR "disc_data is used for tty %s", serial->sdev);
++		goto __end;
++	}
++
++	switch (serial->speed){
++	case 9600:
++		speed = B9600;
++		break;
++	case 19200:
++		speed = B19200;
++		break;
++	case 38400:
++		speed = B38400;
++		break;
++	case 57600:
++		speed = B57600;
++		break;
++	case 115200:
++	default:
++		speed = B115200;
++		break;
++	}
++
++	cflag = speed | CREAD | CSIZE | CS8 | HUPCL | CLOCAL;
++
++	old_termios = tty->termios;
++	ntermios = &tty->termios;
++
++	// Clear the Termios structure
++	memset (ntermios, 0, sizeof(struct ktermios));
++
++	// Set UART mode
++	ntermios->c_lflag = NOFLSH;
++	ntermios->c_iflag = IGNBRK | IGNPAR;
++	ntermios->c_oflag = 0;
++	ntermios->c_cflag = cflag;
++	ntermios->c_cc[VEOL] = 0;
++	ntermios->c_cc[VERASE] = 0;
++	ntermios->c_cc[VKILL] = 0;
++	ntermios->c_cc[VMIN] = 0;
++	ntermios->c_cc[VTIME] = 0;
++
++	if (serial->index == 0) {
++		if ((tty_device_index < 0) || (tty_device_index == tty->index)) {
++			tty_device_index = tty->index;
++		}
++	}
++	else {
++		if ((tty_device_index2 < 0) || (tty_device_index2 == tty->index)) {
++			tty_device_index2 = tty->index;
++		}
++	}
++	// Set UART baud rate
++	(*tty->driver->ops->set_termios)(tty, &old_termios);
++
++	serial->tty = tty;
++	tty->disc_data = serial;
++
++	tty->port->low_latency = 1;
++	tty->receive_room = 256;
++	//serial->old_exclusive = test_bit(TTY_EXCLUSIVE, &tty->flags);
++	set_bit(TTY_EXCLUSIVE, (void*)&tty->flags);
++
++	set_bit(mode, (void*)&serial->mode);
++	retval = 0;
++
++__end:
++	if (retval < 0){
++		if (serial->file){
++			filp_close(serial->file, 0);
++			serial->file = NULL;
++		}
++	}
++	mutex_unlock(&serial->open_lock);
++
++	if (retval)
++		klt_uart_midi_message(KERN_ERR "open_tty: ERROR = %d\n", retval);
++
++	klt_uart_midi_message(KERN_INFO "OPEN TTY OK !\n");
++
++	return retval;
++}
++/*
++ * -----------------------------------------------------------------------------
++ */
++static int close_tty(serialmidi_t *serial, uint mode)
++{
++	struct tty_struct *tty;
++
++	mutex_lock(&serial->open_lock);
++	clear_bit(mode, (void*)&serial->mode);
++
++	//serial->ref_count --;
++
++	if (!serial->ref_count){
++		tty = serial->tty;
++
++		tty->count --;
++	
++		if (tty->disc_data == serial)
++			tty->disc_data = NULL;
++	
++		/*
++		if (tty && tty->ldisc->ops->receive_buf == ldisc_receive_buf) {
++
++						tty->port->low_latency = serial->old_low_latency;
++						tty->ldisc->ops->receive_buf = old_receive_buf;
++						tty->ldisc->ops->write_wakeup = old_write_wakeup;
++						if (serial->old_exclusive)
++								set_bit(TTY_EXCLUSIVE, (void*)&tty->flags);
++						else
++								clear_bit(TTY_EXCLUSIVE, (void*)&tty->flags);
++
++		}*/
++
++		klt_uart_midi_message(KERN_INFO "close_tty filp_close");
++		filp_close(serial->file, 0);
++		serial->tty = NULL;
++		serial->file = NULL;
++		serial->mode = NULL;
++	}
++	mutex_unlock(&serial->open_lock);
++	return 0;
++}
++
++/*
++ * -----------------------------------------------------------------------------
++ */
++static void tx_loop(serialmidi_t *serial)
++{
++	struct tty_struct *tty;
++	char *buf = serial->tx_buf;
++
++	tty = serial->tty;
++
++
++	if(!mutex_trylock(&tty->atomic_write_lock))
++		return;
++
++	while (1){
++
++		int count = tty->driver->ops->write_room(tty);
++		if (count <= 0){
++			klt_uart_midi_message(KERN_INFO "tx_loop exit no room");
++			mutex_unlock(&tty->atomic_write_lock);
++			return;
++		}
++		count = count > TX_BUF_SIZE ? TX_BUF_SIZE : count;
++
++		count = snd_rawmidi_transmit_peek(serial->substream_output, buf, count);
++
++		if (count > 0){
++			count = tty->driver->ops->write(tty, buf, count);
++			snd_rawmidi_transmit_ack(serial->substream_output, count);
++		} else {
++			clear_bit(TTY_DO_WRITE_WAKEUP, (void*)&tty->flags);
++			break;
++		}
++	}
++	mutex_unlock(&tty->atomic_write_lock);
++}
++
++/*
++ * -----------------------------------------------------------------------------
++ */
++static void snd_serialmidi_output_trigger(struct snd_rawmidi_substream * substream, int up)
++{
++	serialmidi_t *serial = (serialmidi_t*)substream->rmidi->private_data;
++
++	if (up){
++		set_bit(SERIAL_MODE_BIT_OUTPUT_TRIGGERED, (void*)&serial->mode);
++		set_bit(TTY_DO_WRITE_WAKEUP, (void*)&serial->tty->flags);
++		tx_loop(serial);
++	} else {
++		clear_bit(TTY_DO_WRITE_WAKEUP, (void*)&serial->tty->flags);
++		clear_bit(SERIAL_MODE_BIT_OUTPUT_TRIGGERED, (void*)&serial->mode);
++	}
++}
++
++/*
++ * -----------------------------------------------------------------------------
++ */
++static void snd_serialmidi_input_trigger(struct snd_rawmidi_substream * substream, int up)
++{
++	serialmidi_t *serial = (serialmidi_t*)substream->rmidi->private_data;
++
++	if (up){
++				set_bit(SERIAL_MODE_BIT_INPUT_TRIGGERED, (void*)&serial->mode);
++	} else {
++				clear_bit(SERIAL_MODE_BIT_INPUT_TRIGGERED, (void*)&serial->mode);
++	}
++}
++
++/*
++ * -----------------------------------------------------------------------------
++ */
++static int snd_serialmidi_output_open(struct snd_rawmidi_substream * substream)
++{
++	serialmidi_t *serial = (serialmidi_t*)substream->rmidi->private_data;
++	int err;
++
++	if ((err = open_tty(serial, SERIAL_MODE_BIT_OUTPUT)) < 0)
++				return err;
++
++	serial->substream_output = substream;
++	return 0;
++}
++/*
++ * -----------------------------------------------------------------------------
++ */
++static int snd_serialmidi_output_close(struct snd_rawmidi_substream * substream)
++{
++	serialmidi_t *serial = (serialmidi_t*)substream->rmidi->private_data;
++
++	serial->substream_output = NULL;
++	return close_tty(serial, SERIAL_MODE_BIT_OUTPUT);
++}
++
++/*
++ * -----------------------------------------------------------------------------
++ */
++static int snd_serialmidi_input_open(struct snd_rawmidi_substream * substream)
++{
++	serialmidi_t *serial = (serialmidi_t*)substream->rmidi->private_data;
++	int err;
++
++	if ((err = open_tty(serial, SERIAL_MODE_BIT_INPUT)) < 0)
++				return err;
++	serial->substream_input = substream;
++	return 0;
++}
++/*
++ * -----------------------------------------------------------------------------
++ */
++static int snd_serialmidi_input_close(struct snd_rawmidi_substream * substream)
++{
++	serialmidi_t *serial = (serialmidi_t*)substream->rmidi->private_data;
++
++	serial->substream_input = NULL;
++	return close_tty(serial, SERIAL_MODE_BIT_INPUT);
++}
++
++/*
++ * -----------------------------------------------------------------------------
++ */
++static struct snd_rawmidi_ops snd_serialmidi_output =
++{
++	.open =     snd_serialmidi_output_open,
++	.close =	snd_serialmidi_output_close,
++	.trigger =	snd_serialmidi_output_trigger,
++};
++
++/*
++ * -----------------------------------------------------------------------------
++ */
++static struct snd_rawmidi_ops snd_serialmidi_input =
++{
++	.open =	    snd_serialmidi_input_open,
++	.close =	snd_serialmidi_input_close,
++	.trigger =	snd_serialmidi_input_trigger,
++};
++
++/*
++ * -----------------------------------------------------------------------------
++ */
++static int snd_serialmidi_free(serialmidi_t *serial)
++{
++	if (serial->sdev)
++		kfree(serial->sdev);
++
++	kfree(serial);
++	return 0;
++}
++
++/*
++ * -----------------------------------------------------------------------------
++ */
++static int snd_serialmidi_dev_free(struct snd_device *device)
++{
++	serialmidi_t *serial = (serialmidi_t*)device->device_data;
++	return snd_serialmidi_free(serial);
++}
++
++/*
++ * -----------------------------------------------------------------------------
++ */
++static int __init snd_serialmidi_rmidi(serialmidi_t *serial)
++{
++	struct snd_rawmidi *rrawmidi;
++	int err;
++
++	if ((err = snd_rawmidi_new(serial->card, "TTY Serial MIDI", 0,
++				   serial->outs, 1, &rrawmidi)) < 0)
++		return err;
++	snd_rawmidi_set_ops(rrawmidi,
++			    SNDRV_RAWMIDI_STREAM_INPUT, &snd_serialmidi_input);
++	snd_rawmidi_set_ops(rrawmidi,
++			    SNDRV_RAWMIDI_STREAM_OUTPUT, &snd_serialmidi_output);
++	snprintf(rrawmidi->name, sizeof(rrawmidi->name), "%s", serial->card->shortname);
++	rrawmidi->info_flags = SNDRV_RAWMIDI_INFO_OUTPUT |
++			       SNDRV_RAWMIDI_INFO_INPUT |
++			       SNDRV_RAWMIDI_INFO_DUPLEX;
++	rrawmidi->private_data = serial;
++	serial->rmidi = rrawmidi;
++	return 0;
++}
++
++/*
++ * -----------------------------------------------------------------------------
++ */
++ssize_t midi_ldisc_write(struct tty_struct *tty, struct file *file, const unsigned char *buf, size_t count)
++{
++	return 0;
++}
++
++/*
++ * -----------------------------------------------------------------------------
++ */
++static void midi_ldisc_write_wakeup(struct tty_struct *tty)
++{
++
++	if(tty_device_index == tty->index) {
++		//serialmidi_t *serial = (serialmidi_t*)tty->disc_data;
++		//tx_loop(serial);
++	}
++}
++
++/*
++ * -----------------------------------------------------------------------------
++ */
++static void midi_ldisc_receive_buf(struct tty_struct *tty,
++			      const unchar *cp, char *fp, int count)
++{
++	serialmidi_t *serial =(serialmidi_t*)tty->disc_data;
++
++	if (serial != NULL && tty_device_index == tty->index) {
++		if (test_bit(SERIAL_MODE_BIT_INPUT_TRIGGERED, (void*)&serial->mode)) {
++			snd_rawmidi_receive(serial->substream_input, cp, count);
++			return;
++		}
++	}
++}
++/*
++ * -----------------------------------------------------------------------------
++ */
++static void midi_ldisc_write_wakeup2(struct tty_struct *tty)
++{
++
++	if(tty_device_index2 == tty->index) {
++		//serialmidi_t *serial = (serialmidi_t*)tty->disc_data;
++		//tx_loop(serial);
++	}
++}
++
++/*
++ * -----------------------------------------------------------------------------
++ */
++static void midi_ldisc_receive_buf2(struct tty_struct *tty,
++			      const unchar *cp, char *fp, int count)
++{
++	serialmidi_t *serial =(serialmidi_t*)tty->disc_data;
++
++	if (serial != NULL && tty_device_index2 == tty->index) {
++		if (test_bit(SERIAL_MODE_BIT_INPUT_TRIGGERED, (void*)&serial->mode)) {
++			snd_rawmidi_receive(serial->substream_input, cp, count);
++			return;
++		}
++	}
++}
++
++/*
++ * -----------------------------------------------------------------------------
++ */
++static unsigned int midi_ldisc_poll(struct tty_struct *tty, struct file *file, poll_table *wait)
++{
++	return 0;
++}
++
++/*
++ * -----------------------------------------------------------------------------
++ */
++ssize_t midi_ldisc_read(struct tty_struct *tty, struct file *file, unsigned char __user *buf, size_t count)
++{
++	return 0;
++}
++
++/*
++ * -----------------------------------------------------------------------------
++ */
++static int midi_ldisc_open(struct tty_struct *tty)
++{
++	return 0;
++}
++
++/*
++ * -----------------------------------------------------------------------------
++ */
++static int midi_ldisc_close(struct tty_struct *tty)
++{
++	return 0;
++}
++
++
++/*
++ * -----------------------------------------------------------------------------
++ */
++static int snd_serialmidi_init_ldisc(serialmidi_t * serial, uint baud_base)
++{
++	int ret;
++	int is_midi;
++	if (midi_baudbase == 0xffffffff) {
++		midi_baudbase = baud_base;
++	}
++	is_midi = (baud_base == midi_baudbase) ? 1 : 0;
++	if (is_midi) {
++		serial->ldisc_name = kasprintf(GFP_KERNEL, "n_midi_%d", 0);
++	}
++	else {
++		serial->ldisc_name = kasprintf(GFP_KERNEL, "n_epf_%d", 0);
++	}
++
++//	// ----------------------------------------------------------------------------
++//	// Linux tty line discipline Interface ( Linux Side )
++//	// ----------------------------------------------------------------------------
++
++	memset(&serial->ldisc_ops,0,sizeof(struct tty_ldisc_ops));
++
++	serial->ldisc_ops.magic = TTY_LDISC_MAGIC;
++	serial->ldisc_ops.name = serial->ldisc_name;
++	serial->ldisc_ops.owner = THIS_MODULE;
++	serial->ldisc_ops.open = midi_ldisc_open;
++	serial->ldisc_ops.close = midi_ldisc_close;
++	serial->ldisc_ops.read = midi_ldisc_read;
++	serial->ldisc_ops.write = midi_ldisc_write;
++	serial->ldisc_ops.poll = midi_ldisc_poll;
++	if (is_midi) {
++		serial->ldisc_ops.receive_buf = midi_ldisc_receive_buf;
++		serial->ldisc_ops.write_wakeup = midi_ldisc_write_wakeup;
++		serial->ldisc_type = N_MIDI;
++		ret = tty_register_ldisc(N_MIDI, &serial->ldisc_ops);
++		serial->index = 0;
++	}
++	else {
++		serial->ldisc_ops.receive_buf = midi_ldisc_receive_buf2;
++		serial->ldisc_ops.write_wakeup = midi_ldisc_write_wakeup2;
++		serial->ldisc_type = N_EPF;
++		serial->index = 1;
++		ret = tty_register_ldisc(N_EPF, &serial->ldisc_ops);
++	}
++	serial_index++;
++
++	klt_uart_midi_message(KERN_INFO "tty_register_ldisc %u\n",ret);
++
++}
++
++/*
++ * -----------------------------------------------------------------------------
++ */
++static int __init snd_serialmidi_create(struct snd_card *card, const char *sdev,
++					uint speed, uint baud_base, uint adaptor,
++					uint outs, serialmidi_t **rserial)
++{
++	static struct snd_device_ops ops = {
++		.dev_free = snd_serialmidi_dev_free,
++	};
++	serialmidi_t *serial;
++	int err;
++
++	outs = 1;
++
++	if (outs < 1)
++		outs = 1;
++	if (outs > 16)
++		outs = 16;
++
++	if ((serial = kmalloc(sizeof(serialmidi_t), GFP_KERNEL)) == NULL)
++		return -ENOMEM;
++
++	serial->tty = NULL;
++	serial->ref_count = 0;
++
++	mutex_init(&serial->open_lock);
++
++	snd_serialmidi_init_ldisc(serial, baud_base);
++
++	serial->card = card;
++	serial->sdev = kstrdup(sdev, GFP_KERNEL);
++	if (serial->sdev == NULL) {
++		snd_serialmidi_free(serial);
++		return -ENOMEM;
++	}
++	serial->adaptor = adaptor;
++	serial->speed = speed;
++	serial->outs = outs;
++	serial->baud_base = baud_base;
++
++	memset(serial->prev_status, 0x80, sizeof(unchar) * SNDRV_SERIAL_MAX_OUTS);
++
++	/* Register device */
++	if ((err = snd_device_new(card, SNDRV_DEV_LOWLEVEL, serial, &ops)) < 0) {
++		snd_serialmidi_free(serial);
++		return err;
++	}
++
++	if ((err = snd_serialmidi_rmidi(serial)) < 0) {
++		snd_device_free(card, serial);
++		return err;
++	}
++
++	if (rserial)
++		*rserial = serial;
++	return 0;
++}
++
++static struct platform_device snd_card_midi_dev = {
++	.name		= "serial_midi_card",
++	.id		= 1,
++};
++/*
++ * -----------------------------------------------------------------------------
++ */
++static int __init snd_card_serialmidi_probe(int dev)
++{
++	struct snd_card *card;
++	serialmidi_t *serial;
++	int err;
++
++	if (dev == 0) {
++		err = snd_card_new(&snd_card_midi_dev.dev,index[dev], id[dev], THIS_MODULE, 0, &card);
++	}
++	else {
++		err = snd_card_new(&snd_card_midi_dev.dev,index[dev], id[dev], THIS_MODULE, 0, &card);
++	}
++
++	if (err < 0)
++	return err;
++
++	strcpy(card->driver, "Serial MIDI");
++	if (id[dev] && *id[dev])
++		snprintf(card->shortname, sizeof(card->shortname), "%s", id[dev]);
++	else
++		strcpy(card->shortname, card->driver);
++
++	if ((err = snd_serialmidi_create(card,
++				   sdev[dev],
++				   speed[dev],
++				   baud_base[dev],
++				   adaptor[dev],
++				   outs[dev],
++				   &serial)) < 0) {
++		snd_card_free(card);
++		return err;
++	}
++
++	sprintf(card->longname, "%s at %s", card->shortname, sdev[dev]);
++	if ((err = snd_card_register(card)) < 0) {
++		snd_card_free(card);
++		return err;
++	}
++	snd_serialmidi_cards[dev] = card;
++	return 0;
++}
++/*
++ * -----------------------------------------------------------------------------
++ */
++static int __init alsa_card_serialmidi_init(void)
++{
++	int ret;
++	int dev, cards = 0;
++
++	ret = platform_device_register(&snd_card_midi_dev);
++
++	if(ret)
++		return ret;
++
++	for (dev = 0; dev < SNDRV_CARDS; dev++) {
++		if (!enable[dev])
++			continue;
++		if (snd_card_serialmidi_probe(dev) >= 0)
++			cards++;
++	}
++	if (!cards) {
++		#ifdef MODULE
++		klt_uart_midi_message(KERN_INFO "serial MIDI device not found or device busy\n");
++		#endif
++		return -ENODEV;
++	}
++	klt_uart_midi_message(KERN_INFO "serial MIDI device found %d devices\n", cards);
++	return 0;
++}
++/*
++ * -----------------------------------------------------------------------------
++ */
++static void __exit alsa_card_serialmidi_exit(void)
++{
++	int idx;
++
++	platform_device_unregister(&snd_card_midi_dev);
++
++	for (idx = 0; idx < SNDRV_CARDS; idx++)
++		snd_card_free(snd_serialmidi_cards[idx]);
++}
++
++module_init(alsa_card_serialmidi_init)
++module_exit(alsa_card_serialmidi_exit)
++
++#ifndef MODULE
++
++/* format is: snd-serialmidi=enable,index,id, sdev,speed,adaptor,outs */
++
++/*
++ * -----------------------------------------------------------------------------
++ */
++static int __init alsa_card_serialmidi_setup(char *str)
++{
++	static unsigned __initdata nr_dev = 0;
++
++	if (nr_dev >= SNDRV_CARDS)
++		return 0;
++
++	(void)(get_option(&str,&enable[nr_dev]) == 2 &&
++	       get_option(&str,&index[nr_dev]) == 2 &&
++	     /*get_id(&str,&id[nr_dev]) == 2 &&	 */
++	     /*get_id(&str,&sdev[nr_dev]) == 2 &&       */
++	       get_option(&str,&speed[nr_dev]) == 2 &&
++	       get_option(&str,&adaptor[nr_dev]) == 2 &&
++	       get_option(&str,&outs[nr_dev]) == 2);
++	nr_dev++;
++	return 1;
++}
++
++__setup("snd-serialmidi=", alsa_card_serialmidi_setup);
++
++#endif /* ifndef MODULE */
++
