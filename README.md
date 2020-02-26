@@ -1,37 +1,68 @@
-## Welcome to GitHub Pages
+# i3 Open source softwares and patches
 
-You can use the [editor on GitHub](https://github.com/korginc/i3_OSS/edit/master/README.md) to maintain and preview the content for your website in Markdown files.
+## packages
 
-Whenever you commit to this repository, GitHub Pages will run [Jekyll](https://jekyllrb.com/) to rebuild the pages in your site, from the content in your Markdown files.
+### u-boot
+- License: GPL-2.0+ 
+- Version: rel_imx_4.1.15_2.1.0_ga
+- Website: [uboot-imx - i.MX U-Boot](https://source.codeaurora.org/external/imx/uboot-imx)
+- [Source code fetch script](https://github.com/korginc/i3_OSS/blob/master/u-boot/fetch_uboot-imx_sources.sh)
+- [patch file](https://github.com/korginc/i3_OSS/blob/master/u-boot/i3-u-boot.patch)
 
-### Markdown
+### Linux
+- License: GPL-2.0
+- Version: rel_imx_4.1.15_2.0.0_ga
+- Website: [linux-imx - i.MX Linux Kernel](https://source.codeaurora.org/external/imx/linux-imx)
+- [Source code fetch script](https://github.com/korginc/i3_OSS/blob/master/linux/fetch_kernel_sources.sh)
+- [patches](https://github.com/korginc/i3_OSS/tree/master/linux/patches)
 
-Markdown is a lightweight and easy-to-use syntax for styling your writing. It includes conventions for
+### Libraries
+#### alsa-lib
+- License: LGPL-2.1+
+- Version: 1.1.2
+- Website: [Advanced Linux Sound Architecture (ALSA) project homepage](https://www.alsa-project.org/main/index.php/Main_Page)
+- Source Code: [alsa-lib-1.1.2.tar.bz2](https://github.com/korginc/i3_OSS/blob/master/libs/alsa-lib-1.1.2.tar.bz2)
 
-```markdown
-Syntax highlighted code block
+#### libsndfile
+- License: LGPL-2.1
+- Version: 1.0.28
+- Website: [libsndfile](http://www.mega-nerd.com/libsndfile/)
+- Source code [libsndfile-1.0.28.tar.gz](https://github.com/korginc/i3_OSS/blob/master/libs/libsndfile-1.0.28.tar.gz)
 
-# Header 1
-## Header 2
-### Header 3
+#### mpg123
+- License: LGPL-2.1
+- Version: 1.25.0
+- Website: [mpg123, Fast MP3 Player for Linux and UNIX systems](https://www.mpg123.de/)
+- Source code [mpg123-1.25.0.tar.bz2](https://github.com/korginc/i3_OSS/blob/master/libs/mpg123-1.25.0.tar.bz2)
 
-- Bulleted
-- List
+#### lua
+- License: MIT
+- Version: 5.3.4
+- Website: [The Programming Language Lua](https://www.lua.org/)
+- Source code [lua-5.3.4.tar.gz](https://github.com/korginc/i3_OSS/blob/master/libs/lua-5.3.4.tar.gz)
 
-1. Numbered
-2. List
+### Tools and Applications
+#### busybox
+- License: GPL-2.0
+- Version: 1.25.1
+- Website: [BusyBox](https://www.busybox.net/)
+- Source code [busybox-1.25.1.tar.gz](https://github.com/korginc/i3_OSS/blob/master/tools/busybox-1.25.1.tar.gz)
+- .config file [busybox.config](https://github.com/korginc/i3_OSS/blob/master/tools/busybox.config)
 
-**Bold** and _Italic_ and `Code` text
+#### i2c-tools
+- License: GPL-2.0
+- Version: 3.1.2
+- Website: [https://mirrors.edge.kernel.org/pub/software/utils/i2c-tools/](https://mirrors.edge.kernel.org/pub/software/utils/i2c-tools/)
+- Source code: [i2c-tools-3.1.2.tar.bz2](https://github.com/korginc/i3_OSS/blob/master/tools/i2c-tools/i2c-tools-3.1.2.tar.bz2)
+- Patch: [i2c-tools-i2cget-Add-support-for-i2c-block-data.patch](https://github.com/korginc/i3_OSS/blob/master/tools/i2c-tools/i2c-tools-i2cget-Add-support-for-i2c-block-data.patch)
 
-[Link](url) and ![Image](src)
-```
+#### mtd-utils
+- License: GPL-2.0
+- Website: [Memory Technology Device (MTD) Subsystem for Linux.](http://www.linux-mtd.infradead.org/)
+- Source code: [mtd-utils-2.0.1.tar.bz2](https://github.com/korginc/i3_OSS/blob/master/tools/mtd-utils-2.0.1.tar.bz2)
 
-For more details see [GitHub Flavored Markdown](https://guides.github.com/features/mastering-markdown/).
-
-### Jekyll Themes
-
-Your Pages site will use the layout and styles from the Jekyll theme you have selected in your [repository settings](https://github.com/korginc/i3_OSS/settings). The name of this theme is saved in the Jekyll `_config.yml` configuration file.
-
-### Support or Contact
-
-Having trouble with Pages? Check out our [documentation](https://help.github.com/categories/github-pages-basics/) or [contact support](https://github.com/contact) and we’ll help you sort it out.
+#### kobs-ng
+- License: GPL-2.0
+- Version: c70685de47cfb67c5e16e1631b7033023ca3e97c
+- Website: [NXPmicro/imx-kobs: Tool to create and write Freescale/NXP I.MX NAND boot related boot data structure to nand flash](https://github.com/NXPmicro/imx-kobs)
+- Source code: [imx-kobs-c70685de47cfb67c5e16e1631b7033023ca3e97c.tar.gz](https://github.com/korginc/i3_OSS/blob/master/tools/imx-kobs-c70685de47cfb67c5e16e1631b7033023ca3e97c.tar.gz)
