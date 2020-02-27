@@ -33,21 +33,22 @@
 - License: LGPL-2.1
 - Version: 1.25.0
 - Website: [mpg123, Fast MP3 Player for Linux and UNIX systems](https://www.mpg123.de/)
-- Source code [mpg123-1.25.0.tar.bz2](https://github.com/korginc/i3_OSS/blob/master/libs/mpg123-1.25.0.tar.bz2)
+- Source code: [mpg123-1.25.0.tar.bz2](https://github.com/korginc/i3_OSS/blob/master/libs/mpg123-1.25.0.tar.bz2)
 
 #### lua
 - License: MIT
 - Version: 5.3.4
 - Website: [The Programming Language Lua](https://www.lua.org/)
-- Source code [lua-5.3.4.tar.gz](https://github.com/korginc/i3_OSS/blob/master/libs/lua-5.3.4.tar.gz)
+- Source code: [lua-5.3.4.tar.gz](https://github.com/korginc/i3_OSS/blob/master/libs/lua-5.3.4.tar.gz)
 
 ### Tools and Applications
 #### busybox
 - License: GPL-2.0
 - Version: 1.25.1
 - Website: [BusyBox](https://www.busybox.net/)
-- Source code [busybox-1.25.1.tar.gz](https://github.com/korginc/i3_OSS/blob/master/tools/busybox-1.25.1.tar.gz)
+- Source code: [busybox-1.25.1.tar.gz](https://github.com/korginc/i3_OSS/blob/master/tools/busybox-1.25.1.tar.gz)
 - .config file [busybox.config](https://github.com/korginc/i3_OSS/blob/master/tools/busybox.config)
+- [Patch](https://github.com/korginc/i3_OSS/blob/master/tools/busybox_i3.patch)
 
 #### i2c-tools
 - License: GPL-2.0
